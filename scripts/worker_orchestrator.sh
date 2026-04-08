@@ -1,31 +1,20 @@
 #!/bin/bash
-# scripts/worker_orchestrator.sh
-# Improved orchestrator: Trigger worker container with cleanup and error handling
+# Improved worker: JSON-contract compliant
+TASK_DIR=$1
+TASK_ID=$(basename "$TASK_DIR")
+JSON_FILE="$TASK_DIR/task.json"
 
-TASK_PAYLOAD=$1
-WORKER_NAME="worker-$(date +%s)-$RANDOM"
+# Set status to processing
+jq -r --arg NOW "$(date -u +%Y-%m-%dT%H:%M:%SZ)" '.status = "processing" | .started_at = $NOW' "$JSON_FILE" > "$JSON_FILE.tmp" && mv "$JSON_FILE.tmp" "$JSON_FILE"
 
-echo "[$(date)] Starting worker container for task: $TASK_PAYLOAD"
-
-# Trap to ensure cleanup happens even if the script is terminated
-cleanup() {
-    echo "[$(date)] Cleaning up container $WORKER_NAME..."
-    docker rm -f $WORKER_NAME >/dev/null 2>&1
-}
-trap cleanup EXIT
-
-# Run container with resource limits and automatic cleanup
-docker run --rm \
-    --name $WORKER_NAME \
-    --memory="512m" \
-    --cpus="0.5" \
-    alpine sh -c "echo 'Worker received: $TASK_PAYLOAD' && sleep 2 && exit 0"
-
-# Result capture
+# Execute
+docker run --rm --memory="512m" --cpus="0.5" alpine sh -c "echo 'Worker processed: $(cat $JSON_FILE | jq -r .payload)'" > "$TASK_DIR/task.log" 2>&1
 EXIT_CODE=$?
+
+# Update final status
 if [ $EXIT_CODE -eq 0 ]; then
-    echo "[$(date)] Task $TASK_PAYLOAD completed successfully."
+    jq '.status = "completed"' "$JSON_FILE" > "$JSON_FILE.tmp" && mv "$JSON_FILE.tmp" "$JSON_FILE"
 else
-    echo "[$(date)] Task $TASK_PAYLOAD failed with exit code $EXIT_CODE."
-    exit $EXIT_CODE
+    jq '.status = "failed"' "$JSON_FILE" > "$JSON_FILE.tmp" && mv "$JSON_FILE.tmp" "$JSON_FILE"
 fi
+exit $EXIT_CODE
