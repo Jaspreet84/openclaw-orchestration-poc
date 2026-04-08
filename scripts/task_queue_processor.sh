@@ -1,4 +1,5 @@
 #!/bin/bash
+HOOK_URL="http://127.0.0.1:18789/hooks/agent"
 while true; do
     for f in tasks/pending/*/; do
         [ -d "$f" ] || continue
@@ -6,8 +7,12 @@ while true; do
         mv "$f" tasks/processing/
         PROC_DIR="tasks/processing/$TASK_ID"
         
+        # Trigger
         ./scripts/worker_orchestrator.sh "$PROC_DIR"
         EXIT_CODE=$?
+        
+        # Notify
+        curl -s -X POST $HOOK_URL -d "task=$TASK_ID&status=finished&code=$EXIT_CODE"
         
         if [ $EXIT_CODE -eq 0 ]; then
             jq '.status = "completed"' "$PROC_DIR/task.json" > "$PROC_DIR/task.json.tmp" && mv "$PROC_DIR/task.json.tmp" "$PROC_DIR/task.json"
